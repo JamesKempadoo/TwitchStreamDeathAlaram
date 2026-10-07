@@ -2,10 +2,10 @@
  * Twitch Stream Death Alarm - Pure Client-Side Browser App
  * Features Twitch EventSub WebSockets (wss://eventsub.wss.twitch.tv/ws)
  * Real-Time Stream Death Detection with 0 Latency.
- * Injects Client ID via .env locally and GitHub Repository Secrets on GitHub Pages.
+ * Injects Client ID via .env locally or GitHub Repository Secrets on GitHub Pages.
  */
 
-// Retrieve Client ID dynamically from window.CONFIG (generated from environment secret)
+// Retrieve Client ID dynamically from window.CONFIG or LocalStorage
 const getEnvironmentClientId = () => {
   if (window.CONFIG && typeof window.CONFIG.TWITCH_CLIENT_ID === 'string' && window.CONFIG.TWITCH_CLIENT_ID.trim() !== '') {
     return window.CONFIG.TWITCH_CLIENT_ID.trim();
@@ -97,10 +97,6 @@ class SoundSynthesizer {
     }
   }
 
-  /**
-   * Pattern 1: Emergency Two-Tone Siren (Police / Ambulance Hi-Lo Glide)
-   * Alternates smoothly between 600Hz and 950Hz every 400ms.
-   */
   _playSiren() {
     this.osc1 = this.audioCtx.createOscillator();
     this.osc1.type = 'sawtooth';
@@ -118,10 +114,6 @@ class SoundSynthesizer {
     }, 400);
   }
 
-  /**
-   * Pattern 2: Red Alert Klaxon (Submarine Horn - Deep 180Hz to 750Hz pitch sweep with gaps)
-   * Sweeps up over 0.45s, then pauses for 0.25s: WHOOOOP! ... WHOOOOP!
-   */
   _playRedAlert() {
     this.osc1 = this.audioCtx.createOscillator();
     this.osc1.type = 'sawtooth';
@@ -140,7 +132,6 @@ class SoundSynthesizer {
       this.osc1.frequency.setValueAtTime(180, now);
       this.osc1.frequency.exponentialRampToValueAtTime(750, now + 0.45);
 
-      // Silence gap
       this.gainNode.gain.setValueAtTime(0.001, now + 0.46);
     };
 
@@ -148,10 +139,6 @@ class SoundSynthesizer {
     this.pulseInterval = setInterval(triggerKlaxonPulse, 700);
   }
 
-  /**
-   * Pattern 3: High-Pitch Telemetry Beeps (3 fast 2600Hz square wave beeps per burst)
-   * Rapid piercing burst: BEEP-BEEP-BEEP ... BEEP-BEEP-BEEP
-   */
   _playBeeps() {
     this.osc1 = this.audioCtx.createOscillator();
     this.osc1.type = 'square';
@@ -165,7 +152,6 @@ class SoundSynthesizer {
       const now = this.audioCtx.currentTime;
       const vol = (state.volume / 100) * 0.75;
 
-      // Pattern: On (step 0), Off (step 1), On (step 2), Off (step 3), On (step 4), Long Off (steps 5,6,7)
       if (step === 0 || step === 2 || step === 4) {
         this.gainNode.gain.setValueAtTime(vol, now);
       } else {
@@ -175,10 +161,6 @@ class SoundSynthesizer {
     }, 70);
   }
 
-  /**
-   * Pattern 4: Strobe Frequency Synth (Fast sci-fi vibrato detuned sawtooth wobble)
-   * Dual detuned oscillators with 12Hz rapid pitch wobble between 400Hz and 1800Hz.
-   */
   _playStrobe() {
     this.osc1 = this.audioCtx.createOscillator();
     this.osc2 = this.audioCtx.createOscillator();
@@ -186,7 +168,6 @@ class SoundSynthesizer {
     this.osc1.type = 'sawtooth';
     this.osc2.type = 'triangle';
 
-    // Detuned frequencies
     this.osc1.frequency.setValueAtTime(400, this.audioCtx.currentTime);
     this.osc2.frequency.setValueAtTime(405, this.audioCtx.currentTime);
 
@@ -301,10 +282,9 @@ document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
   checkAudioContextStatus();
   
-  if (state.oauthToken && state.clientId) {
+  // Validate token whenever an OAuth token exists
+  if (state.oauthToken) {
     validateTwitchToken();
-  } else if (!state.clientId) {
-    logActivity('TWITCH_CLIENT_ID is missing. Add it to .env locally or GitHub Secrets on Pages.', 'danger');
   } else {
     logActivity('Click Connect Twitch to authenticate your token.', 'info');
   }
@@ -327,7 +307,7 @@ function initOAuthFromUrlHash() {
     const cleanUrl = window.location.protocol + '//' + window.location.host + window.location.pathname + window.location.search;
     window.history.replaceState(null, null, cleanUrl);
 
-    logActivity('Twitch OAuth Token successfully received.', 'success');
+    logActivity('Twitch OAuth Token received from URL hash.', 'success');
   }
 }
 
@@ -373,7 +353,6 @@ function setupEventListeners() {
     localStorage.setItem('twitch_sound_preset', state.soundPreset);
     logActivity(`Alarm sound set to: ${e.target.options[e.target.selectedIndex].text}`, 'info');
 
-    // If alarm is currently playing, switch sound pattern in real-time!
     if (synthesizer.isPlaying) {
       synthesizer.playAlarm(state.soundPreset, state.volume);
     }
@@ -385,7 +364,6 @@ function setupEventListeners() {
     elements.volumeValueText.textContent = `${state.volume}%`;
     localStorage.setItem('twitch_volume', state.volume.toString());
 
-    // Update live volume if alarm is currently playing
     if (synthesizer.isPlaying && synthesizer.gainNode && synthesizer.audioCtx) {
       const vol = (state.volume / 100) * 0.75;
       synthesizer.gainNode.gain.setValueAtTime(vol, synthesizer.audioCtx.currentTime);
@@ -510,7 +488,12 @@ function initiateTwitchOAuth() {
   window.location.href = authUrl;
 }
 
+/**
+ * Validate OAuth Token via Twitch API and auto-populate user & client_id details
+ */
 async function validateTwitchToken() {
+  if (!state.oauthToken) return;
+
   try {
     const res = await fetch('https://id.twitch.tv/oauth2/validate', {
       headers: {
@@ -525,6 +508,13 @@ async function validateTwitchToken() {
     const data = await res.json();
     logActivity(`Twitch OAuth Token valid. Authenticated as: ${data.login}`, 'success');
 
+    // Auto-capture Client ID directly from Twitch validation response if missing
+    if (!state.clientId && data.client_id) {
+      state.clientId = data.client_id;
+      localStorage.setItem('twitch_client_id', data.client_id);
+    }
+
+    // Auto-fill target channel name if empty
     if (!state.targetChannel) {
       state.targetChannel = data.login;
       elements.channelInput.value = data.login;
@@ -532,8 +522,12 @@ async function validateTwitchToken() {
       localStorage.setItem('twitch_target_channel', data.login);
     }
 
+    // UPDATE UI TO SHOW CONNECTED STATUS & USERNAME!
     updateAuthUI(true, data.login);
-    fetchTwitchUserProfile(data.user_id);
+
+    if (data.user_id) {
+      fetchTwitchUserProfile(data.user_id);
+    }
   } catch (err) {
     console.error('Validate token error:', err);
     logActivity(`OAuth validation error: ${err.message}. Please connect Twitch again.`, 'danger');
@@ -542,6 +536,8 @@ async function validateTwitchToken() {
 }
 
 async function fetchTwitchUserProfile(userId) {
+  if (!state.clientId || !state.oauthToken) return;
+
   try {
     const res = await fetch(`https://api.twitch.tv/helix/users?id=${userId}`, {
       headers: {
@@ -910,7 +906,6 @@ function triggerAlarmOverlay(isTest = false) {
 
   elements.alarmOverlay.classList.remove('hidden');
 
-  // Ensure current selected sound preset is passed to the audio synthesizer
   const activePreset = elements.alarmSoundSelect ? elements.alarmSoundSelect.value : state.soundPreset;
   synthesizer.playAlarm(activePreset, state.volume);
   
