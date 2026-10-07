@@ -308,6 +308,8 @@ function initOAuthFromUrlHash() {
     window.history.replaceState(null, null, cleanUrl);
 
     logActivity('Twitch OAuth Token received from URL hash.', 'success');
+    updateAuthUI(true, 'Connecting...');
+    validateTwitchToken();
   }
 }
 
@@ -520,6 +522,9 @@ async function validateTwitchToken() {
       elements.channelInput.value = data.login;
       elements.heroChannelName.textContent = data.login;
       localStorage.setItem('twitch_target_channel', data.login);
+    } else {
+      elements.channelInput.value = state.targetChannel;
+      elements.heroChannelName.textContent = state.targetChannel;
     }
 
     // UPDATE UI TO SHOW CONNECTED STATUS & USERNAME!
@@ -531,17 +536,20 @@ async function validateTwitchToken() {
   } catch (err) {
     console.error('Validate token error:', err);
     logActivity(`OAuth validation error: ${err.message}. Please connect Twitch again.`, 'danger');
-    updateAuthUI(false);
+    logoutTwitch();
   }
 }
 
 async function fetchTwitchUserProfile(userId) {
-  if (!state.clientId || !state.oauthToken) return;
+  if (!state.oauthToken) return;
+
+  const clientId = state.clientId || getEnvironmentClientId();
+  if (!clientId) return;
 
   try {
     const res = await fetch(`https://api.twitch.tv/helix/users?id=${userId}`, {
       headers: {
-        'Client-Id': state.clientId,
+        'Client-Id': clientId,
         'Authorization': `Bearer ${state.oauthToken}`
       }
     });
@@ -565,20 +573,19 @@ function logoutTwitch() {
   state.userProfile = null;
   localStorage.removeItem('twitch_oauth_token');
   updateAuthUI(false);
-  logActivity('Disconnected from Twitch OAuth.', 'warning');
 }
 
 function updateAuthUI(isAuthenticated, loginName = '') {
   if (isAuthenticated) {
     elements.authStatusCard.className = 'auth-status-card authenticated';
     elements.authUserName.textContent = loginName || 'Connected';
-    elements.authStatusBadge.textContent = 'Token Active';
+    elements.authStatusBadge.textContent = 'Token Active ✓';
     elements.btnTwitchLogin.classList.add('hidden');
     elements.btnTwitchLogout.classList.remove('hidden');
   } else {
     elements.authStatusCard.className = 'auth-status-card unauthenticated';
     elements.authUserName.textContent = 'Not Connected';
-    elements.authStatusBadge.textContent = 'OAuth Token Required for EventSub';
+    elements.authStatusBadge.textContent = 'OAuth Token Required';
     elements.authUserAvatar.classList.add('hidden');
     elements.btnTwitchLogin.classList.remove('hidden');
     elements.btnTwitchLogout.classList.add('hidden');
