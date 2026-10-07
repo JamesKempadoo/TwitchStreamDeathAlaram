@@ -1,0 +1,13 @@
+{
+  "name": "twitch-stream-death-alarm",
+  "version": "1.0.0",
+  "description": "Twitch Stream Death Alarm with EventSub WebSockets and GitHub Secrets integration",
+  "main": "app.js",
+  "scripts": {
+    "build": "node build.js",
+    "start": "node build.js && python3 -m http.server 8000"
+  },
+  "keywords": ["twitch", "eventsub", "stream-alarm", "github-pages"],
+  "author": "",
+  "license": "MIT"
+}

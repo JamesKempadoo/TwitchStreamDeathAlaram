@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Twitch Stream Death Alarm | EventSub WebSocket Monitor</title>
+  <meta name="description" content="A real-time client-side Twitch API alarm using EventSub WebSockets. Triggers a loud alert instantly when your stream drops." />
+  
+  <!-- Google Fonts & Font Awesome Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Active Alarm Overlay Banner (Full Screen Triggered Alert) -->
+  <div id="alarm-overlay" class="alarm-overlay hidden">
+    <div class="alarm-overlay-content">
+      <div class="alarm-icon-pulse">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+      </div>
+      <h1 class="alarm-title">STREAM DIED!</h1>
+      <p class="alarm-subtitle">EventSub Alert: Your Twitch stream has gone offline!</p>
+      
+      <div class="alarm-details">
+        <span id="alarm-channel-name">Channel: --</span>
+        <span id="alarm-trigger-time">Time: --:--:--</span>
+      </div>
+
+      <button id="btn-silence-alarm" class="btn-silence">
+        <i class="fa-solid fa-volume-xmark"></i> SILENCE ALARM
+      </button>
+    </div>
+  </div>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <i class="fa-brands fa-twitch"></i>
+          <span class="bell-badge"><i class="fa-solid fa-bolt"></i></span>
+        </div>
+        <div class="brand-text">
+          <h1>Stream <span>Death</span> Alarm</h1>
+          <p>Real-Time Twitch EventSub WebSocket & Audio Alert</p>
+        </div>
+      </div>
+
+      <!-- Quick Status Header Pill -->
+      <div class="header-status-pill">
+        <div id="status-indicator-dot" class="status-dot disarmed"></div>
+        <span id="header-status-text">DISARMED</span>
+      </div>
+    </header>
+
+    <!-- Audio Unlock Banner (Browser Auto-play Policy Warning) -->
+    <div id="audio-unlock-banner" class="audio-unlock-banner hidden">
+      <div class="unlock-info">
+        <i class="fa-solid fa-volume-high"></i>
+        <span>Browser requires audio activation before alarm sounds can play.</span>
+      </div>
+      <button id="btn-unlock-audio" class="btn-unlock">
+        <i class="fa-solid fa-power-off"></i> Enable Audio System
+      </button>
+    </div>
+
+    <!-- Grid Layout -->
+    <main class="dashboard-grid">
+      <!-- Left Column: Controls & Configuration -->
+      <section class="card config-card">
+        <div class="card-header">
+          <h2><i class="fa-solid fa-sliders"></i> Monitoring Controls</h2>
+          <span class="badge badge-purple"><i class="fa-solid fa-bolt"></i> EventSub WS</span>
+        </div>
+
+        <!-- Master Alarm Toggle Switch -->
+        <div class="alarm-master-switch-container">
+          <div class="switch-label">
+            <div class="switch-title">
+              <i class="fa-solid fa-shield-halved"></i>
+              <span>Alarm Master Switch</span>
+            </div>
+            <span class="switch-subtext" id="toggle-subtext">Toggle ON to connect EventSub & arm death alert</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="alarm-arm-toggle" />
+            <span class="slider round"></span>
+          </label>
+        </div>
+
+        <!-- Twitch OAuth & Settings Form -->
+        <div class="settings-section">
+          <h3 class="section-title"><i class="fa-solid fa-key"></i> Twitch Authentication</h3>
+          
+          <!-- Auth Status Banner -->
+          <div id="auth-status-card" class="auth-status-card unauthenticated">
+            <div class="auth-user-info">
+              <img id="auth-user-avatar" class="user-avatar hidden" src="" alt="Avatar" />
+              <div class="user-details">
+                <span id="auth-user-name" class="user-name">Not Connected</span>
+                <span id="auth-status-badge" class="auth-badge">OAuth Token Required</span>
+              </div>
+            </div>
+            <button id="btn-twitch-login" class="btn btn-twitch">
+              <i class="fa-brands fa-twitch"></i> Connect Twitch
+            </button>
+            <button id="btn-twitch-logout" class="btn btn-secondary hidden">
+              <i class="fa-solid fa-right-from-bracket"></i> Disconnect
+            </button>
+          </div>
+
+          <!-- Configuration Fields (Client ID hidden and loaded strictly from environment) -->
+          <form id="config-form" class="config-form" onsubmit="return false;">
+            <div class="form-group">
+              <label for="channel-input">Target Streamer Username</label>
+              <div class="input-wrapper">
+                <i class="fa-solid fa-at input-icon"></i>
+                <input type="text" id="channel-input" placeholder="e.g. shroud, xqcov, or your channel" autocomplete="off" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="connection-mode-select">Detection Engine</label>
+              <select id="connection-mode-select">
+                <option value="eventsub" selected>Twitch EventSub WebSocket (Real-Time Push)</option>
+                <option value="polling">REST API Polling (15s Periodic Ping)</option>
+                <option value="hybrid">Hybrid Mode (EventSub + REST Backup)</option>
+              </select>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group half">
+                <label for="alarm-sound-preset">Alarm Sound</label>
+                <select id="alarm-sound-preset">
+                  <option value="siren">Emergency Siren</option>
+                  <option value="redalert">Red Alert Klaxon</option>
+                  <option value="beeps">High-Pitch Beeps</option>
+                  <option value="strobe">Strobe Frequency</option>
+                </select>
+              </div>
+              <div class="form-group half">
+                <label for="check-interval">Polling Backup</label>
+                <select id="check-interval">
+                  <option value="10">10s Backup</option>
+                  <option value="15" selected>15s Backup</option>
+                  <option value="30">30s Backup</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="volume-slider">
+                Alarm Volume: <span id="volume-value-text">80%</span>
+              </label>
+              <div class="volume-control-wrapper">
+                <i class="fa-solid fa-volume-low"></i>
+                <input type="range" id="volume-slider" min="5" max="100" value="80" />
+                <i class="fa-solid fa-volume-high"></i>
+              </div>
+            </div>
+
+            <div class="button-group">
+              <button id="btn-save-config" type="button" class="btn btn-primary">
+                <i class="fa-solid fa-floppy-disk"></i> Save Settings
+              </button>
+              <button id="btn-test-alarm" type="button" class="btn btn-warning">
+                <i class="fa-solid fa-bullhorn"></i> Test Sound
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- Right Column: Live Stream Status & Dashboard -->
+      <section class="card monitor-card">
+        <div class="card-header">
+          <h2><i class="fa-solid fa-chart-line"></i> Live Stream Monitor</h2>
+          <div class="eventsub-status-pill" id="eventsub-status-pill">
+            <i class="fa-solid fa-wifi"></i> WebSocket: <span id="ws-status-text">Disconnected</span>
+          </div>
+        </div>
+
+        <!-- Channel Display Hero Card -->
+        <div class="stream-hero" id="stream-hero">
+          <div class="hero-status-bar">
+            <span class="hero-channel-name" id="hero-channel-name">No Channel Configured</span>
+            <span class="hero-badge badge-offline" id="hero-status-badge">OFFLINE</span>
+          </div>
+
+          <div class="hero-content">
+            <div class="hero-preview-box" id="hero-preview-box">
+              <i class="fa-solid fa-tv offline-placeholder-icon"></i>
+              <img id="stream-thumbnail" class="stream-thumbnail hidden" src="" alt="Stream Thumbnail" />
+              <div id="stream-live-overlay" class="stream-live-overlay hidden">
+                <span class="live-pill">LIVE</span>
+                <span class="viewer-count-pill" id="hero-viewer-count"><i class="fa-solid fa-user"></i> 0</span>
+              </div>
+            </div>
+
+            <div class="hero-meta">
+              <h3 id="hero-stream-title" class="stream-title">Connect Twitch and arm the alarm to subscribe to real-time EventSub stream notifications.</h3>
+              <div class="meta-tags">
+                <span class="meta-tag" id="meta-category"><i class="fa-solid fa-gamepad"></i> Category: N/A</span>
+                <span class="meta-tag" id="meta-uptime"><i class="fa-solid fa-stopwatch"></i> Uptime: --:--:--</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Monitoring Stats Panel -->
+        <div class="stats-grid">
+          <div class="stat-box">
+            <div class="stat-icon purple"><i class="fa-solid fa-bolt"></i></div>
+            <div class="stat-data">
+              <span class="stat-value" id="stat-eventsub-count">0</span>
+              <span class="stat-label">EventSub Events</span>
+            </div>
+          </div>
+
+          <div class="stat-box">
+            <div class="stat-icon green"><i class="fa-solid fa-satellite-dish"></i></div>
+            <div class="stat-data">
+              <span class="stat-value" id="stat-ws-session">Disconnected</span>
+              <span class="stat-label">WS Connection State</span>
+            </div>
+          </div>
+
+          <div class="stat-box">
+            <div class="stat-icon red"><i class="fa-solid fa-bell-slash"></i></div>
+            <div class="stat-data">
+              <span class="stat-value" id="stat-triggers-count">0</span>
+              <span class="stat-label">Alarms Triggered</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Real-Time Activity Log -->
+        <div class="activity-log-container">
+          <div class="log-header">
+            <h3><i class="fa-solid fa-list-check"></i> System Activity Log</h3>
+            <button id="btn-clear-log" class="btn-text"><i class="fa-solid fa-trash-can"></i> Clear</button>
+          </div>
+          <div class="log-console" id="log-console">
+            <div class="log-entry info">
+              <span class="log-time">[System]</span> Ready. Connected with Twitch EventSub WebSockets (wss://eventsub.wss.twitch.tv/ws).
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="footer-info">
+        <p><i class="fa-solid fa-lock"></i> <strong>Client-Side Security:</strong> Client ID is injected securely during build time from environment variables / repository secrets and is never hardcoded.</p>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Setup Instructions Modal -->
+  <div id="guide-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2><i class="fa-brands fa-twitch"></i> Setting up Environment Variables & GitHub Secrets</h2>
+        <button id="btn-close-modal" class="btn-close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <ol class="setup-steps">
+          <li>
+            <strong>Local Setup (.env):</strong>
+            <p>Edit <code class=".env">.env</code> in your repository root:</p>
+            <p><code>TWITCH_CLIENT_ID=your_actual_client_id_here</code></p>
+            <p>Run <code>npm run build</code> locally to generate <code>config.js</code>.</p>
+          </li>
+          <li>
+            <strong>GitHub Pages Secret Setup:</strong>
+            <p>Go to your GitHub Repository -&gt; <strong>Settings</strong> -&gt; <strong>Secrets and variables</strong> -&gt; <strong>Actions</strong>.</p>
+            <p>Click <strong>New repository secret</strong>:</p>
+            <ul>
+              <li><strong>Name:</strong> <code>TWITCH_CLIENT_ID</code></li>
+              <li><strong>Secret:</strong> Paste your Twitch Application Client ID</li>
+            </ul>
+          </li>
+          <li>
+            <strong>Automatic GitHub Actions Deployment:</strong>
+            <p>Pushing to main automatically runs GitHub Actions, injects your secret into config.js, and deploys to GitHub Pages.</p>
+          </li>
+        </ol>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-modal-got-it" class="btn btn-primary">Got it!</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generated Runtime Config -->
+  <script src="config.js"></script>
+  <!-- Main Application Logic -->
+  <script src="app.js"></script>
+</body>
+</html>

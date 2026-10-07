@@ -1,0 +1,8 @@
+# Environment & secret files
+.env
+config.js
+
+# Dependencies & Logs
+node_modules/
+npm-debug.log
+.DS_Store
